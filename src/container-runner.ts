@@ -4,6 +4,7 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
+import { homedir } from 'os';
 import path from 'path';
 
 import {
@@ -200,6 +201,16 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Mount GitLab .netrc for HTTPS git clone if configured
+  const gitlabNetrc = path.join(homedir(), '.config', 'nanoclaw', 'gitlab-netrc');
+  if (fs.existsSync(gitlabNetrc)) {
+    mounts.push({
+      hostPath: gitlabNetrc,
+      containerPath: '/home/node/.netrc',
+      readonly: true,
+    });
+  }
+
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(
@@ -249,6 +260,18 @@ function buildContainerArgs(
       args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
     } else {
       args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+    }
+  }
+
+  // GitLab integration: pass credentials to containers if configured
+  const gitlabEnv = readEnvFile(['GITLAB_PERSONAL_ACCESS_TOKEN', 'GITLAB_API_URL', 'GITLAB_READ_ONLY_MODE']);
+  if (gitlabEnv.GITLAB_PERSONAL_ACCESS_TOKEN) {
+    args.push('-e', `GITLAB_PERSONAL_ACCESS_TOKEN=${gitlabEnv.GITLAB_PERSONAL_ACCESS_TOKEN}`);
+    if (gitlabEnv.GITLAB_API_URL) {
+      args.push('-e', `GITLAB_API_URL=${gitlabEnv.GITLAB_API_URL}`);
+    }
+    if (gitlabEnv.GITLAB_READ_ONLY_MODE) {
+      args.push('-e', `GITLAB_READ_ONLY_MODE=${gitlabEnv.GITLAB_READ_ONLY_MODE}`);
     }
   }
 

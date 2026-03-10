@@ -17,6 +17,88 @@ import {
 // Messages exceeding this are split into sequential chunks.
 const MAX_MESSAGE_LENGTH = 4000;
 
+/**
+ * Convert standard markdown to Slack mrkdwn format.
+ * Handles the most common patterns the agent produces.
+ * Code blocks and inline code are left untouched.
+ */
+/** Apply inline markdown→mrkdwn conversions to a single span of text. */
+function convertInline(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '*$1*')       // bold: **x** → *x*
+    .replace(/~~(.+?)~~/g, '~$1~')            // strikethrough: ~~x~~ → ~x~
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>'); // links: [t](u) → <u|t>
+}
+
+/** Convert a markdown table block into readable Slack text. */
+function convertTable(tableLines: string[]): string {
+  const rows: string[][] = [];
+  for (const line of tableLines) {
+    const cells = line
+      .split('|')
+      .slice(1, -1) // drop leading/trailing empty segments
+      .map(c => c.trim());
+    if (cells.every(c => /^[-: ]+$/.test(c))) continue; // skip separator row
+    rows.push(cells.map(convertInline));
+  }
+  if (rows.length === 0) return tableLines.join('\n');
+  const [header, ...body] = rows;
+  const out: string[] = [header.map(h => `*${h}*`).join(' | ')];
+  for (const row of body) out.push(row.join(' | '));
+  return out.join('\n');
+}
+
+/**
+ * Convert standard markdown to Slack mrkdwn format.
+ * Handles the most common patterns the agent produces.
+ * Code blocks and inline code are left untouched.
+ */
+function markdownToSlack(text: string): string {
+  const lines = text.split('\n');
+  const result: string[] = [];
+  let inCodeBlock = false;
+  let tableBuffer: string[] = [];
+
+  const flushTable = () => {
+    if (tableBuffer.length > 0) {
+      result.push(convertTable(tableBuffer));
+      tableBuffer = [];
+    }
+  };
+
+  for (const line of lines) {
+    if (line.startsWith('```')) {
+      flushTable();
+      inCodeBlock = !inCodeBlock;
+      result.push(line);
+      continue;
+    }
+
+    if (inCodeBlock) {
+      result.push(line);
+      continue;
+    }
+
+    // Accumulate table rows (lines that start and end with |)
+    const trimmed = line.trim();
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      tableBuffer.push(line);
+      continue;
+    }
+
+    flushTable();
+
+    // Headers: # text → *text* (bold), then apply inline conversions
+    let out = line.replace(/^#{1,6}\s+(.+)$/, '*$1*');
+    out = convertInline(out);
+    result.push(out);
+  }
+
+  flushTable();
+
+  return result.join('\n');
+}
+
 // The message subtypes we process. Bolt delivers all subtypes via app.event('message');
 // we filter to regular messages (GenericMessageEvent, subtype undefined) and bot messages
 // (BotMessageEvent, subtype 'bot_message') so we can track our own output.
@@ -94,8 +176,7 @@ export class SlackChannel implements Channel {
       const groups = this.opts.registeredGroups();
       if (!groups[jid]) return;
 
-      const isBotMessage =
-        !!msg.bot_id || msg.user === this.botUserId;
+      const isBotMessage = !!msg.bot_id || msg.user === this.botUserId;
 
       let senderName: string;
       if (isBotMessage) {
@@ -113,7 +194,10 @@ export class SlackChannel implements Channel {
       let content = msg.text;
       if (this.botUserId && !isBotMessage) {
         const mentionPattern = `<@${this.botUserId}>`;
-        if (content.includes(mentionPattern) && !TRIGGER_PATTERN.test(content)) {
+        if (
+          content.includes(mentionPattern) &&
+          !TRIGGER_PATTERN.test(content)
+        ) {
           content = `@${ASSISTANT_NAME} ${content}`;
         }
       }
@@ -142,10 +226,7 @@ export class SlackChannel implements Channel {
       this.botUserId = auth.user_id as string;
       logger.info({ botUserId: this.botUserId }, 'Connected to Slack');
     } catch (err) {
-      logger.warn(
-        { err },
-        'Connected to Slack but failed to get bot user ID',
-      );
+      logger.warn({ err }, 'Connected to Slack but failed to get bot user ID');
     }
 
     this.connected = true;
@@ -159,9 +240,10 @@ export class SlackChannel implements Channel {
 
   async sendMessage(jid: string, text: string): Promise<void> {
     const channelId = jid.replace(/^slack:/, '');
+    const slackText = markdownToSlack(text);
 
     if (!this.connected) {
-      this.outgoingQueue.push({ jid, text });
+      this.outgoingQueue.push({ jid, text: slackText });
       logger.info(
         { jid, queueSize: this.outgoingQueue.length },
         'Slack disconnected, message queued',
@@ -171,19 +253,19 @@ export class SlackChannel implements Channel {
 
     try {
       // Slack limits messages to ~4000 characters; split if needed
-      if (text.length <= MAX_MESSAGE_LENGTH) {
-        await this.app.client.chat.postMessage({ channel: channelId, text });
+      if (slackText.length <= MAX_MESSAGE_LENGTH) {
+        await this.app.client.chat.postMessage({ channel: channelId, text: slackText });
       } else {
-        for (let i = 0; i < text.length; i += MAX_MESSAGE_LENGTH) {
+        for (let i = 0; i < slackText.length; i += MAX_MESSAGE_LENGTH) {
           await this.app.client.chat.postMessage({
             channel: channelId,
-            text: text.slice(i, i + MAX_MESSAGE_LENGTH),
+            text: slackText.slice(i, i + MAX_MESSAGE_LENGTH),
           });
         }
       }
-      logger.info({ jid, length: text.length }, 'Slack message sent');
+      logger.info({ jid, length: slackText.length }, 'Slack message sent');
     } catch (err) {
-      this.outgoingQueue.push({ jid, text });
+      this.outgoingQueue.push({ jid, text: slackText });
       logger.warn(
         { jid, err, queueSize: this.outgoingQueue.length },
         'Failed to send Slack message, queued',
@@ -245,9 +327,7 @@ export class SlackChannel implements Channel {
     }
   }
 
-  private async resolveUserName(
-    userId: string,
-  ): Promise<string | undefined> {
+  private async resolveUserName(userId: string): Promise<string | undefined> {
     if (!userId) return undefined;
 
     const cached = this.userNameCache.get(userId);

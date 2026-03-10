@@ -407,7 +407,8 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        'mcp__gitlab__*',
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -423,6 +424,20 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
+        ...(sdkEnv.GITLAB_PERSONAL_ACCESS_TOKEN ? {
+          gitlab: {
+            command: 'node',
+            args: ['/usr/local/lib/node_modules/@zereight/mcp-gitlab/build/index.js'],
+            env: {
+              GITLAB_PERSONAL_ACCESS_TOKEN: sdkEnv.GITLAB_PERSONAL_ACCESS_TOKEN,
+              GITLAB_API_URL: sdkEnv.GITLAB_API_URL || 'https://gitlab.com/api/v4',
+              GITLAB_READ_ONLY_MODE: sdkEnv.GITLAB_READ_ONLY_MODE || 'false',
+              USE_GITLAB_WIKI: 'false',
+              USE_MILESTONE: 'false',
+              USE_PIPELINE: 'true',
+            },
+          },
+        } : {}),
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
