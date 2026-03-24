@@ -25,8 +25,8 @@ const MAX_MESSAGE_LENGTH = 4000;
 /** Apply inline markdown→mrkdwn conversions to a single span of text. */
 function convertInline(text: string): string {
   return text
-    .replace(/\*\*(.+?)\*\*/g, '*$1*')       // bold: **x** → *x*
-    .replace(/~~(.+?)~~/g, '~$1~')            // strikethrough: ~~x~~ → ~x~
+    .replace(/\*\*(.+?)\*\*/g, '*$1*') // bold: **x** → *x*
+    .replace(/~~(.+?)~~/g, '~$1~') // strikethrough: ~~x~~ → ~x~
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>'); // links: [t](u) → <u|t>
 }
 
@@ -37,13 +37,13 @@ function convertTable(tableLines: string[]): string {
     const cells = line
       .split('|')
       .slice(1, -1) // drop leading/trailing empty segments
-      .map(c => c.trim());
-    if (cells.every(c => /^[-: ]+$/.test(c))) continue; // skip separator row
+      .map((c) => c.trim());
+    if (cells.every((c) => /^[-: ]+$/.test(c))) continue; // skip separator row
     rows.push(cells.map(convertInline));
   }
   if (rows.length === 0) return tableLines.join('\n');
   const [header, ...body] = rows;
-  const out: string[] = [header.map(h => `*${h}*`).join(' | ')];
+  const out: string[] = [header.map((h) => `*${h}*`).join(' | ')];
   for (const row of body) out.push(row.join(' | '));
   return out.join('\n');
 }
@@ -254,7 +254,10 @@ export class SlackChannel implements Channel {
     try {
       // Slack limits messages to ~4000 characters; split if needed
       if (slackText.length <= MAX_MESSAGE_LENGTH) {
-        await this.app.client.chat.postMessage({ channel: channelId, text: slackText });
+        await this.app.client.chat.postMessage({
+          channel: channelId,
+          text: slackText,
+        });
       } else {
         for (let i = 0; i < slackText.length; i += MAX_MESSAGE_LENGTH) {
           await this.app.client.chat.postMessage({

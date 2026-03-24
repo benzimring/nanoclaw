@@ -204,7 +204,12 @@ function buildVolumeMounts(
   });
 
   // Mount GitLab .netrc for HTTPS git clone if configured
-  const gitlabNetrc = path.join(homedir(), '.config', 'nanoclaw', 'gitlab-netrc');
+  const gitlabNetrc = path.join(
+    homedir(),
+    '.config',
+    'nanoclaw',
+    'gitlab-netrc',
+  );
   if (fs.existsSync(gitlabNetrc)) {
     mounts.push({
       hostPath: gitlabNetrc,
@@ -266,14 +271,24 @@ async function buildContainerArgs(
   }
 
   // GitLab integration: pass credentials to containers if configured
-  const gitlabEnv = readEnvFile(['GITLAB_PERSONAL_ACCESS_TOKEN', 'GITLAB_API_URL', 'GITLAB_READ_ONLY_MODE']);
+  const gitlabEnv = readEnvFile([
+    'GITLAB_PERSONAL_ACCESS_TOKEN',
+    'GITLAB_API_URL',
+    'GITLAB_READ_ONLY_MODE',
+  ]);
   if (gitlabEnv.GITLAB_PERSONAL_ACCESS_TOKEN) {
-    args.push('-e', `GITLAB_PERSONAL_ACCESS_TOKEN=${gitlabEnv.GITLAB_PERSONAL_ACCESS_TOKEN}`);
+    args.push(
+      '-e',
+      `GITLAB_PERSONAL_ACCESS_TOKEN=${gitlabEnv.GITLAB_PERSONAL_ACCESS_TOKEN}`,
+    );
     if (gitlabEnv.GITLAB_API_URL) {
       args.push('-e', `GITLAB_API_URL=${gitlabEnv.GITLAB_API_URL}`);
     }
     if (gitlabEnv.GITLAB_READ_ONLY_MODE) {
-      args.push('-e', `GITLAB_READ_ONLY_MODE=${gitlabEnv.GITLAB_READ_ONLY_MODE}`);
+      args.push(
+        '-e',
+        `GITLAB_READ_ONLY_MODE=${gitlabEnv.GITLAB_READ_ONLY_MODE}`,
+      );
     }
   }
 
